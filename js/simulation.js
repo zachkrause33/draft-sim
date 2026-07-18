@@ -1,8 +1,8 @@
-// Pure simulation engine: (rosterA, rosterB, season) -> { scoreA, scoreB,
+// Pure simulation engine: (rosterA, rosterB, board) -> { scoreA, scoreB,
 // boxScoreA, boxScoreB, playLog }. No DOM access, no globals, easy to test
 // and reusable for both head-to-head and solo/CPU modes.
 
-import { resolvePlayer, POSITIONS } from "./season2007.js";
+import { POSITIONS } from "./seasons.js";
 
 const QUARTERS = 4;
 const POSSESSIONS_PER_TEAM_PER_QUARTER = 3;
@@ -41,10 +41,10 @@ function makeEmptyBox() {
   };
 }
 
-function resolveTeam(roster, season) {
+function resolveTeam(roster, board) {
   const players = {};
   for (const pos of POSITIONS) {
-    players[pos] = resolvePlayer(season, pos, roster[pos].tier);
+    players[pos] = board[pos][roster[pos].tier];
   }
   return players;
 }
@@ -222,9 +222,9 @@ function roundBox(box) {
   return rounded;
 }
 
-export function simulateGame(rosterA, rosterB, season, options = {}) {
-  const playersA = resolveTeam(rosterA, season);
-  const playersB = resolveTeam(rosterB, season);
+export function simulateGame(rosterA, rosterB, board, options = {}) {
+  const playersA = resolveTeam(rosterA, board);
+  const playersB = resolveTeam(rosterB, board);
   const labelA = options.labelA || "Team A";
   const labelB = options.labelB || "Team B";
 

@@ -1,4 +1,4 @@
-import { SEASON_2007, POSITIONS, TIERS } from "./season2007.js";
+import { SEASONS, POSITIONS, DOLLAR_VALUES, pickRandomSeasonId, buildBoard } from "./seasons.js";
 import { simulateGame } from "./simulation.js";
 import { renderDraftScreen } from "./draft.js";
 import {
@@ -6,11 +6,9 @@ import {
   readUrlPayload,
   makeChallengeId,
   saveLocalChallenge,
-  loadLocalChallenge,
 } from "./challenge.js";
 
 const view = document.getElementById("view");
-const season = SEASON_2007;
 
 function el(html) {
   const t = document.createElement("template");
@@ -19,10 +17,16 @@ function el(html) {
 }
 
 function randomRoster() {
-  const shuffled = TIERS.slice().sort(() => Math.random() - 0.5);
+  const shuffled = DOLLAR_VALUES.slice().sort(() => Math.random() - 0.5);
   const roster = {};
   POSITIONS.forEach((pos, i) => (roster[pos] = { tier: shuffled[i] }));
   return roster;
+}
+
+function resolvePlayers(roster, board) {
+  const players = {};
+  for (const pos of POSITIONS) players[pos] = board[pos][roster[pos].tier];
+  return players;
 }
 
 function copyToClipboard(text) {
@@ -31,16 +35,22 @@ function copyToClipboard(text) {
   }
 }
 
+function newSeasonInstance() {
+  const seasonId = pickRandomSeasonId();
+  const season = SEASONS[seasonId];
+  const board = buildBoard(season);
+  return { seasonId, seasonLabel: season.label, board };
+}
+
 // ---------- Landing ----------
 
 function renderLanding() {
   view.innerHTML = "";
   view.appendChild(el(`
     <section class="landing">
-      <h2>${season.label}</h2>
-      <p>Draft a 5-man roster — QB, RB, WR, TE, DEF — from real ${season.id} players.
-      Assign the values 5, 4, 3, 2, and 1 across those positions, each used exactly once.
-      The value you put on a position decides which tiered player you get there.</p>
+      <p class="landing-blurb">Every game is a different real NFL season. Tap a $ value onto each
+      position to build a 5-man roster — QB, RB, WR, TE, DEF — using $5, $4, $3, $2, and $1 exactly
+      once. No stats on the board: it's on you to remember who actually mattered that year.</p>
       <div class="landing-actions">
         <button id="new-challenge-btn" class="primary-btn">Start a New Challenge</button>
         <button id="practice-btn" class="secondary-btn">Practice vs CPU</button>
@@ -54,29 +64,28 @@ function renderLanding() {
 // ---------- New challenge (Player A) ----------
 
 function startNewChallenge() {
+  const { seasonId, seasonLabel, board } = newSeasonInstance();
+
   view.innerHTML = "";
   const wrap = el(`<section class="draft-screen"></section>`);
   view.appendChild(wrap);
 
-  const nameWrap = el(`
+  wrap.appendChild(el(`
     <div class="name-input-row">
       <label>Your display name: <input type="text" id="labelA" value="Player A" maxlength="20" /></label>
     </div>
-  `);
-  wrap.appendChild(nameWrap);
+  `));
 
   const draftContainer = el(`<div></div>`);
   wrap.appendChild(draftContainer);
 
-  renderDraftScreen(draftContainer, season, {
-    title: "Draft Your Roster",
-    subtitle: "This roster stays hidden from your opponent until they lock in theirs.",
+  renderDraftScreen(draftContainer, board, seasonLabel, {
     lockLabel: "Lock In & Generate Challenge Link",
     onLockIn: (roster) => {
       const labelA = document.getElementById("labelA").value.trim() || "Player A";
       const challengeId = makeChallengeId();
-      saveLocalChallenge(challengeId, { roster, labelA, seasonId: season.id });
-      const shareUrl = buildShareUrl("duel", { challengeId, seasonId: season.id, rosterA: roster, labelA });
+      saveLocalChallenge(challengeId, { roster, labelA, seasonId });
+      const shareUrl = buildShareUrl("duel", { challengeId, seasonId, seasonLabel, board, rosterA: roster, labelA });
       renderShareScreen(shareUrl, labelA);
     },
   });
@@ -87,8 +96,8 @@ function renderShareScreen(shareUrl, labelA) {
   view.appendChild(el(`
     <section class="share-screen">
       <h2>Your roster is locked in, ${labelA}.</h2>
-      <p>Send this link to your opponent. When they open it, they'll draft their own roster
-      (yours stays hidden) and the game will simulate immediately for them.</p>
+      <p>Send this link to your opponent. They'll draft blind from the exact same board you just
+      saw, then the game simulates immediately for them.</p>
       <div class="share-link-row">
         <input type="text" id="share-url" readonly value="${shareUrl}" />
         <button id="copy-btn" class="secondary-btn">Copy Link</button>
@@ -113,41 +122,38 @@ function renderShareScreen(shareUrl, labelA) {
 // ---------- Accepting a challenge (Player B) ----------
 
 function startAcceptChallenge(payload) {
-  const { challengeId, rosterA, labelA } = payload.data;
+  const { challengeId, seasonLabel, board, rosterA, labelA } = payload.data;
   view.innerHTML = "";
 
-  const intro = el(`
+  view.appendChild(el(`
     <section class="challenge-intro">
       <h2>${labelA} has challenged you!</h2>
-      <p>They've already drafted their ${season.label} roster in secret. Draft yours to find out
-      how it plays out — you won't see their picks until after the game.</p>
+      <p>They've already drafted their ${seasonLabel} roster from the board below, in secret.
+      Draft yours to find out how it plays out.</p>
     </section>
-  `);
-  view.appendChild(intro);
+  `));
 
   const wrap = el(`<section class="draft-screen"></section>`);
   view.appendChild(wrap);
 
-  const nameWrap = el(`
+  wrap.appendChild(el(`
     <div class="name-input-row">
       <label>Your display name: <input type="text" id="labelB" value="Player B" maxlength="20" /></label>
     </div>
-  `);
-  wrap.appendChild(nameWrap);
+  `));
 
   const draftContainer = el(`<div></div>`);
   wrap.appendChild(draftContainer);
 
-  renderDraftScreen(draftContainer, season, {
-    title: "Draft Your Roster",
-    subtitle: `Facing ${labelA}'s hidden roster.`,
+  renderDraftScreen(draftContainer, board, seasonLabel, {
     lockLabel: "Lock In & Simulate Game",
     onLockIn: (rosterB) => {
       const labelB = document.getElementById("labelB").value.trim() || "Player B";
-      const result = simulateGame(rosterA, rosterB, season, { labelA, labelB });
+      const result = simulateGame(rosterA, rosterB, board, { labelA, labelB });
       const resultShareUrl = buildShareUrl("result", {
         challengeId,
-        seasonId: season.id,
+        seasonLabel,
+        board,
         labelA,
         labelB,
         rosterA,
@@ -168,22 +174,23 @@ function startAcceptChallenge(payload) {
 // ---------- Practice vs CPU ----------
 
 function startPractice() {
+  const { seasonLabel, board } = newSeasonInstance();
+
   view.innerHTML = "";
   const wrap = el(`<section class="draft-screen"></section>`);
   view.appendChild(wrap);
-  wrap.appendChild(el(`<p class="subtitle">Practice mode: the CPU drafts a random roster the moment you lock yours in.</p>`));
+  wrap.appendChild(el(`<p class="subtitle">Practice mode: the CPU drafts a random roster from the same board the moment you lock yours in.</p>`));
 
   const draftContainer = el(`<div></div>`);
   wrap.appendChild(draftContainer);
 
-  renderDraftScreen(draftContainer, season, {
-    title: "Draft Your Roster",
+  renderDraftScreen(draftContainer, board, seasonLabel, {
     lockLabel: "Lock In & Simulate vs CPU",
     onLockIn: (roster) => {
       const cpuRoster = randomRoster();
       const labelA = "You";
       const labelB = "CPU";
-      const result = simulateGame(roster, cpuRoster, season, { labelA, labelB });
+      const result = simulateGame(roster, cpuRoster, board, { labelA, labelB });
       renderRevealScreen(result, labelA, labelB, null);
     },
   });
@@ -289,24 +296,16 @@ function route() {
     return;
   }
   if (payload && payload.kind === "result") {
-    const { labelA, labelB, rosterA, rosterB, result } = payload.data;
+    const { labelA, labelB, rosterA, rosterB, board, result } = payload.data;
     const fullResult = {
       ...result,
-      playersA: resolveTeamPlayers(rosterA),
-      playersB: resolveTeamPlayers(rosterB),
+      playersA: resolvePlayers(rosterA, board),
+      playersB: resolvePlayers(rosterB, board),
     };
     renderRevealScreen(fullResult, labelA, labelB, null);
     return;
   }
   renderLanding();
-}
-
-function resolveTeamPlayers(roster) {
-  const players = {};
-  for (const pos of POSITIONS) {
-    players[pos] = season.positions[pos].find((p) => p.tier === roster[pos].tier);
-  }
-  return players;
 }
 
 window.addEventListener("hashchange", route);

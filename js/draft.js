@@ -1,140 +1,126 @@
-// Draft screen: budget assignment (5/4/3/2/1 across QB/RB/WR/TE/DEF).
-// Renders into a container element; calls onLockIn(roster) once a full
-// valid permutation has been assigned.
+// Draft screen: a single tap grid, $5 (top) down to $1 (bottom) across
+// QB/RB/WR/TE/DEF. Tapping a cell assigns that dollar value to that
+// position; since each value and each position can only be used once,
+// selecting a cell clears any other selection sharing its row or column.
+// No stats are shown — the game is about recalling who was actually good
+// that season, not reading a spreadsheet.
 
-import { POSITIONS, TIERS, resolvePlayer } from "./season2007.js";
+import { POSITIONS, DOLLAR_VALUES } from "./seasons.js";
 
-const POSITION_LABELS = { QB: "Quarterback", RB: "Running Back", WR: "Wide Receiver", TE: "Tight End", DEF: "Defense" };
+const POSITION_LABELS = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", DEF: "DEF" };
 
-function statLine(position, stats) {
-  switch (position) {
-    case "QB":
-      return `${stats.comp.toFixed(1)}/${stats.att.toFixed(1)} cmp/att, ${stats.yds.toFixed(1)} yds, ${stats.td.toFixed(2)} TD, ${stats.int.toFixed(2)} INT`;
-    case "RB":
-      return `${stats.car.toFixed(1)} car, ${stats.yds.toFixed(1)} yds, ${stats.td.toFixed(2)} TD, ${stats.fum.toFixed(2)} fum`;
-    case "WR":
-    case "TE":
-      return `${stats.rec.toFixed(1)} rec, ${stats.yds.toFixed(1)} yds, ${stats.td.toFixed(2)} TD, ${stats.fum.toFixed(2)} fum`;
-    case "DEF":
-      return `${stats.sacks.toFixed(2)} sacks, ${stats.int.toFixed(2)} INT, ${stats.ff.toFixed(2)} FF, ${stats.ptsAllowed.toFixed(1)} pts allowed`;
-    default:
-      return "";
-  }
+function initials(name) {
+  const words = name.replace(/[^A-Za-z\s-]/g, "").split(/[\s-]+/).filter(Boolean);
+  if (words.length === 0) return "??";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-export function renderDraftScreen(container, season, opts = {}) {
-  const title = opts.title || "Draft Your Roster";
-  const subtitle = opts.subtitle || "";
+function avatarText(pos, player) {
+  return pos === "DEF" ? player.team : initials(player.name);
+}
+
+export function renderDraftScreen(container, board, seasonLabel, opts = {}) {
   const lockLabel = opts.lockLabel || "Lock In Roster";
 
-  const assignment = { QB: null, RB: null, WR: null, TE: null, DEF: null };
+  const assignment = {}; // pos -> value
+  const byValue = {}; // value -> pos
 
   container.innerHTML = "";
 
   const header = document.createElement("div");
   header.className = "draft-header";
-  header.innerHTML = `<h2>${title}</h2>${subtitle ? `<p class="subtitle">${subtitle}</p>` : ""}
-    <p class="budget-hint">Assign 5, 4, 3, 2, and 1 across the five positions — each value used exactly once.</p>`;
+  header.innerHTML = `
+    <h2>${seasonLabel}</h2>
+    <p class="budget-hint">Tap a player to spend that $ value on their position. Each value — $5 down to $1 — gets used exactly once.</p>
+  `;
   container.appendChild(header);
 
-  const positionsWrap = document.createElement("div");
-  positionsWrap.className = "position-grid";
-  container.appendChild(positionsWrap);
+  const grid = document.createElement("div");
+  grid.className = "draft-board";
+  container.appendChild(grid);
 
-  const rosterPreview = document.createElement("div");
-  rosterPreview.className = "roster-preview";
-  container.appendChild(rosterPreview);
+  // Header row: corner + one header per position
+  grid.appendChild(mkEl(`<div class="board-corner"></div>`));
+  for (const pos of POSITIONS) {
+    grid.appendChild(mkEl(`<div class="board-col-header">${POSITION_LABELS[pos]}</div>`));
+  }
+
+  const cellsByPos = {};
+  const cellsByValue = {};
+  for (const pos of POSITIONS) cellsByPos[pos] = {};
+  for (const value of DOLLAR_VALUES) cellsByValue[value] = {};
+
+  for (const value of DOLLAR_VALUES) {
+    grid.appendChild(mkEl(`<div class="board-row-header">$${value}</div>`));
+    for (const pos of POSITIONS) {
+      const player = board[pos][value];
+      const cell = mkEl(`
+        <button type="button" class="player-cell" data-pos="${pos}" data-value="${value}">
+          <span class="avatar">${avatarText(pos, player)}</span>
+          <span class="player-name">${player.name}</span>
+          <span class="player-team">${player.team}</span>
+        </button>
+      `);
+      cell.addEventListener("click", () => selectCell(pos, value));
+      grid.appendChild(cell);
+      cellsByPos[pos][value] = cell;
+      cellsByValue[value][pos] = cell;
+    }
+  }
 
   const lockBtn = document.createElement("button");
-  lockBtn.className = "primary-btn";
+  lockBtn.className = "primary-btn lock-btn";
   lockBtn.textContent = lockLabel;
   lockBtn.disabled = true;
   container.appendChild(lockBtn);
 
-  const selects = {};
-
-  function availableValuesFor(position) {
-    const used = new Set(
-      POSITIONS.filter((p) => p !== position && assignment[p] !== null).map((p) => assignment[p])
-    );
-    return TIERS.filter((t) => !used.has(t));
+  function clearCellVisual(pos, value) {
+    cellsByPos[pos][value].classList.remove("selected");
   }
 
-  function refreshSelects() {
-    for (const pos of POSITIONS) {
-      const select = selects[pos];
-      const current = assignment[pos];
-      const options = availableValuesFor(pos);
-      select.innerHTML = `<option value="">—</option>` +
-        options.map((t) => `<option value="${t}">${t}</option>`).join("");
-      select.value = current === null ? "" : String(current);
-    }
-    updatePreview();
-    const filled = POSITIONS.every((p) => assignment[p] !== null);
-    lockBtn.disabled = !filled;
-  }
+  function selectCell(pos, value) {
+    const prevValueForPos = assignment[pos];
+    const prevPosForValue = byValue[value];
 
-  function updatePreview() {
-    const filled = POSITIONS.every((p) => assignment[p] !== null);
-    if (!filled) {
-      rosterPreview.innerHTML = `<p class="preview-hint">Your locked roster will appear here once every position has a value.</p>`;
+    if (prevValueForPos === value) {
+      // Tapping an already-selected cell deselects it.
+      delete assignment[pos];
+      delete byValue[value];
+      clearCellVisual(pos, value);
+      refresh();
       return;
     }
-    rosterPreview.innerHTML = `<h3>Your Roster</h3>` + POSITIONS.map((pos) => {
-      const player = resolvePlayer(season, pos, assignment[pos]);
-      return `<div class="preview-row"><span class="preview-tier">[${assignment[pos]}]</span>
-        <span class="preview-pos">${pos}</span>
-        <span class="preview-name">${player.name} (${player.team})</span></div>`;
-    }).join("");
+
+    if (prevValueForPos !== undefined) {
+      clearCellVisual(pos, prevValueForPos);
+      delete byValue[prevValueForPos];
+    }
+    if (prevPosForValue !== undefined) {
+      clearCellVisual(prevPosForValue, value);
+      delete assignment[prevPosForValue];
+    }
+
+    assignment[pos] = value;
+    byValue[value] = pos;
+    cellsByPos[pos][value].classList.add("selected");
+    refresh();
   }
 
-  for (const pos of POSITIONS) {
-    const card = document.createElement("div");
-    card.className = "position-card";
-
-    const players = season.positions[pos].slice().sort((a, b) => b.tier - a.tier);
-    const rows = players.map((p) => `
-      <tr>
-        <td class="tier-cell">${p.tier}</td>
-        <td>${p.name} <span class="team-tag">${p.team}</span></td>
-        <td class="stat-cell">${statLine(pos, p.stats)}</td>
-      </tr>`).join("");
-
-    card.innerHTML = `
-      <div class="position-card-head">
-        <h3>${POSITION_LABELS[pos]}</h3>
-        <label class="value-select-label">Value:
-          <select data-pos="${pos}"></select>
-        </label>
-      </div>
-      <table class="player-table">
-        <thead><tr><th>Tier</th><th>Player</th><th>Per-game avg</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    `;
-
-    positionsWrap.appendChild(card);
-    const select = card.querySelector("select");
-    selects[pos] = select;
-    select.addEventListener("change", () => {
-      assignment[pos] = select.value === "" ? null : Number(select.value);
-      refreshSelects();
-    });
+  function refresh() {
+    const complete = POSITIONS.every((pos) => assignment[pos] !== undefined);
+    lockBtn.disabled = !complete;
   }
-
-  refreshSelects();
 
   lockBtn.addEventListener("click", () => {
     const roster = {};
     for (const pos of POSITIONS) roster[pos] = { tier: assignment[pos] };
     opts.onLockIn && opts.onLockIn(roster);
   });
+}
 
-  return {
-    randomize() {
-      const shuffled = TIERS.slice().sort(() => Math.random() - 0.5);
-      POSITIONS.forEach((pos, i) => (assignment[pos] = shuffled[i]));
-      refreshSelects();
-    },
-  };
+function mkEl(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstChild;
 }
