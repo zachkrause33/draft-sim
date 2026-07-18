@@ -8,16 +8,34 @@ const QUARTERS = 4;
 const POSSESSIONS_PER_TEAM_PER_QUARTER = 3;
 const PASS_PLAY_CHANCE = 0.6;
 
-// Denominators used to spread a player's real per-game rate across the
-// stylized possession count, so 12 possessions/game nets a box score close
-// to (but not identical to) their real average. See Section 4.4 of the plan.
-const PASS_POSSESSIONS_PER_GAME = 7;
-const RUN_POSSESSIONS_PER_GAME = 5;
-
 const LEAGUE_AVG = { sacksPerGame: 2.5, intPerGame: 0.9, fumPerGame: 0.15 };
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const rand = () => Math.random();
+const randInt = (min, max) => Math.floor(min + rand() * (max - min + 1));
+
+// Per-drive counting stats, emergent from THIS drive's outcome rather than
+// reconstructed from season averages. A scoring drive puts up more yards; a
+// three-and-out puts up little. Player quality (their season yardage) scales
+// efficiency, so better players still produce more — but the final box score
+// reflects the game that was actually played, and two sims of the same
+// matchup produce different lines.
+function passDriveYards(points, qb) {
+  const scale = clamp(qb.stats.yds / 240, 0.7, 1.45);
+  let base;
+  if (points === 7) base = 45 + rand() * 38;      // touchdown drive
+  else if (points === 3) base = 28 + rand() * 30; // field-goal drive
+  else base = 6 + rand() * 30;                     // stalled drive / punt
+  return Math.max(0, Math.round(base * scale * flavor()));
+}
+function runDriveYards(points, rb) {
+  const scale = clamp(rb.stats.yds / 70, 0.7, 1.45);
+  let base;
+  if (points === 7) base = 22 + rand() * 40;
+  else if (points === 3) base = 14 + rand() * 30;
+  else base = 3 + rand() * 26;
+  return Math.max(0, Math.round(base * scale * flavor()));
+}
 
 // Stat-flavor variance (wide, ~15-30%): cosmetic jitter on yardage so two
 // sims of the same matchup don't produce identical box scores.
@@ -92,131 +110,109 @@ function touchdownShare(offPlayers) {
   return clamp(0.55 + (off - 3) * 0.07, 0.25, 0.85);
 }
 
+// Decide the drive's point outcome (0 / 3 / 7) from player-quality-driven
+// probabilities. Kept separate from stat accrual so the "who scores" logic
+// (the fairness lever) stays clean.
+function drivePoints(offPlayers, defPlayer) {
+  if (rand() >= driveScoreProbability(offPlayers, defPlayer)) return 0;
+  return rand() < touchdownShare(offPlayers) ? 7 : 3;
+}
+
 function simulatePossession({ offPlayers, offBox, defPlayer, defBox, quarter, offLabel, defLabel }) {
   const playType = rand() < PASS_PLAY_CHANCE ? "pass" : "run";
   const base = { quarter, possessionTeam: offLabel, type: playType, points: 0 };
 
   if (playType === "pass") {
     const qb = offPlayers.QB;
+    const compPct = clamp(qb.stats.comp / qb.stats.att, 0.5, 0.72);
 
+    // Sack ends the drive; a sack is not a pass attempt, so nothing is
+    // charged to the QB's line beyond the defense's sack.
     if (rand() < sackProbability(defPlayer)) {
       defBox.DEF.sacks += 1;
-      return {
-        ...base,
-        type: "sack",
-        text: `${qb.name} is sacked! ${defLabel} defense gets home.`,
-      };
-    }
-
-    if (rand() < interceptionProbability(qb, defPlayer)) {
-      offBox.QB.att += qb.stats.att / PASS_POSSESSIONS_PER_GAME;
-      offBox.QB.int += 1;
-      defBox.DEF.int += 1;
-      return {
-        ...base,
-        type: "turnover",
-        text: `${qb.name}'s pass is INTERCEPTED by the ${defLabel} defense!`,
-      };
+      return { ...base, type: "sack", text: `${qb.name} is sacked! ${defLabel} defense gets home.` };
     }
 
     const receiverPos = rand() < 0.7 ? "WR" : "TE";
     const receiver = offPlayers[receiverPos];
-    const carrierFum = receiver.stats.fum;
 
-    if (rand() < fumbleProbability(carrierFum, defPlayer)) {
-      offBox.QB.att += qb.stats.att / PASS_POSSESSIONS_PER_GAME;
-      offBox.QB.comp += qb.stats.comp / PASS_POSSESSIONS_PER_GAME;
-      offBox[receiverPos].rec += receiver.stats.rec / PASS_POSSESSIONS_PER_GAME;
+    if (rand() < interceptionProbability(qb, defPlayer)) {
+      const att = randInt(2, 4);
+      offBox.QB.att += att;
+      offBox.QB.comp += clamp(Math.round(att * compPct * 0.7), 0, att);
+      offBox.QB.int += 1;
+      defBox.DEF.int += 1;
+      return { ...base, type: "turnover", text: `${qb.name}'s pass is INTERCEPTED by the ${defLabel} defense!` };
+    }
+
+    if (rand() < fumbleProbability(receiver.stats.fum, defPlayer)) {
+      const y = Math.round((8 + rand() * 26) * flavor());
+      const att = randInt(2, 4);
+      offBox.QB.att += att;
+      offBox.QB.comp += clamp(Math.round(att * compPct), 1, att);
+      offBox.QB.yds += y;
+      offBox[receiverPos].rec += 1;
+      offBox[receiverPos].yds += y;
       offBox[receiverPos].fum += 1;
       defBox.DEF.ff += 1;
-      return {
-        ...base,
-        type: "turnover",
-        text: `${qb.name} finds ${receiver.name}, but the ball comes loose! ${defLabel} recovers the fumble.`,
-      };
+      return { ...base, type: "turnover", text: `${qb.name} finds ${receiver.name}, but the ball comes loose! ${defLabel} recovers the fumble.` };
     }
 
-    const scoreRoll = rand() < driveScoreProbability(offPlayers, defPlayer);
-    const yards = Math.round((qb.stats.yds / PASS_POSSESSIONS_PER_GAME) * flavor());
+    const points = drivePoints(offPlayers, defPlayer);
+    const y = passDriveYards(points, qb);
+    const att = randInt(3, 6);
+    const comp = clamp(Math.round(att * compPct * (0.85 + rand() * 0.3)), 1, att);
+    offBox.QB.att += att;
+    offBox.QB.comp += comp;
+    offBox.QB.yds += y;
+    offBox[receiverPos].rec += Math.min(comp, randInt(1, 3));
+    offBox[receiverPos].yds += y;
 
-    offBox.QB.att += qb.stats.att / PASS_POSSESSIONS_PER_GAME;
-    offBox.QB.comp += qb.stats.comp / PASS_POSSESSIONS_PER_GAME;
-    offBox.QB.yds += yards;
-    offBox[receiverPos].rec += receiver.stats.rec / PASS_POSSESSIONS_PER_GAME;
-    offBox[receiverPos].yds += yards;
-
-    if (!scoreRoll) {
-      return {
-        ...base,
-        text: `${qb.name} completes to ${receiver.name} for ${yards} yds. Drive stalls, ${offLabel} punts.`,
-      };
-    }
-
-    if (rand() < touchdownShare(offPlayers)) {
+    if (points === 7) {
       offBox.QB.td += 1;
       offBox[receiverPos].td += 1;
-      return {
-        ...base,
-        points: 7,
-        text: `${qb.name} finds ${receiver.name} for ${yards} yds — TOUCHDOWN!`,
-      };
+      return { ...base, points: 7, text: `${qb.name} finds ${receiver.name} for ${y} yds — TOUCHDOWN!` };
     }
-
-    return {
-      ...base,
-      points: 3,
-      text: `${qb.name} to ${receiver.name} for ${yards} yds. Drive stalls — FIELD GOAL is good.`,
-    };
+    if (points === 3) {
+      return { ...base, points: 3, text: `${qb.name} to ${receiver.name} for ${y} yds. Drive stalls — FIELD GOAL is good.` };
+    }
+    return { ...base, text: `${qb.name} completes to ${receiver.name} for ${y} yds. Drive stalls, ${offLabel} punts.` };
   }
 
   // Run play
   const rb = offPlayers.RB;
 
   if (rand() < fumbleProbability(rb.stats.fum, defPlayer)) {
-    offBox.RB.car += rb.stats.car / RUN_POSSESSIONS_PER_GAME;
+    offBox.RB.car += randInt(2, 4);
+    offBox.RB.yds += Math.round(rand() * 9);
     offBox.RB.fum += 1;
     defBox.DEF.ff += 1;
-    return {
-      ...base,
-      type: "turnover",
-      text: `${rb.name} coughs it up! ${defLabel} recovers the fumble.`,
-    };
+    return { ...base, type: "turnover", text: `${rb.name} coughs it up! ${defLabel} recovers the fumble.` };
   }
 
-  const scoreRoll = rand() < driveScoreProbability(offPlayers, defPlayer);
-  const yards = Math.round((rb.stats.yds / RUN_POSSESSIONS_PER_GAME) * flavor());
-  offBox.RB.car += rb.stats.car / RUN_POSSESSIONS_PER_GAME;
-  offBox.RB.yds += yards;
+  const points = drivePoints(offPlayers, defPlayer);
+  const y = runDriveYards(points, rb);
+  offBox.RB.car += randInt(3, 7);
+  offBox.RB.yds += y;
 
-  if (!scoreRoll) {
-    return {
-      ...base,
-      text: `${rb.name} runs for ${yards} yds. Drive stalls, ${offLabel} punts.`,
-    };
-  }
-
-  if (rand() < touchdownShare(offPlayers)) {
+  if (points === 7) {
     offBox.RB.td += 1;
-    return {
-      ...base,
-      points: 7,
-      text: `${rb.name} runs it in for ${yards} yds — TOUCHDOWN!`,
-    };
+    return { ...base, points: 7, text: `${rb.name} runs it in for ${y} yds — TOUCHDOWN!` };
   }
-
-  return {
-    ...base,
-    points: 3,
-    text: `${rb.name} runs for ${yards} yds. Drive stalls — FIELD GOAL is good.`,
-  };
+  if (points === 3) {
+    return { ...base, points: 3, text: `${rb.name} runs for ${y} yds. Drive stalls — FIELD GOAL is good.` };
+  }
+  return { ...base, text: `${rb.name} runs for ${y} yds. Drive stalls, ${offLabel} punts.` };
 }
 
 function roundBox(box) {
+  // Every stat is now an actual count from the game, so a plain integer box
+  // score (no season-style decimals).
   const rounded = {};
   for (const pos of Object.keys(box)) {
     rounded[pos] = {};
     for (const [key, val] of Object.entries(box[pos])) {
-      rounded[pos][key] = Math.round(val * 10) / 10;
+      rounded[pos][key] = Math.round(val);
     }
   }
   return rounded;

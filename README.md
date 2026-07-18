@@ -34,13 +34,25 @@ draft from; tapping a cell assigns its $ value to that position, and since
 each value and each position can only be used once, selecting a cell clears
 any other selection sharing its row or column.
 
-Cards show a position-colored jersey with the player's real number for that
-team-season (players change numbers between teams, so the number lives on the
-per-season candidate), and the name — no stats, no team abbreviation. A
-defense is a whole team rather than one player, so it keeps its team name and
-shows a helmet chip instead of a numbered jersey. Both the jersey and the
-helmet are inline SVG, so they render in the sandboxed shareable preview with
-no external image requests.
+Cards show a jersey in the player's real team colors for that year, with
+their real number for that team-season (players change numbers between teams,
+so the number lives on the per-season candidate), and the name — no stats, no
+team abbreviation. A defense is a whole team rather than one player, so it
+keeps its team name and shows a team-colored helmet chip instead of a
+numbered jersey. Both the jersey and the helmet are inline SVG, so they
+render in the sandboxed shareable preview with no external image requests.
+
+Tiers are ordered by that-season production, not career reputation — the $5
+player is the best that year and $1 the weakest. So a player who was elite
+for his career but had a down or injured year sits lower for that year (Drew
+Brees is $2 in 2007, Antonio Gates is $1 as a 2003 rookie, Kevin White and
+Breshad Perriman are $1 in 2015 having missed the season hurt). That's the
+whole game: knowing who actually mattered in a given season.
+
+Team colors live in `js/teamColors.js`, keyed by the abbreviation used in the
+season data — so era-appropriate abbreviations resolve to the right-era colors
+automatically (STL Rams navy/gold vs LAR royal/yellow, SD/LAC powder blue,
+OAK/LV silver-and-black).
 
 **Season coverage:** 2000, 2003, 2007, 2011, 2015, 2019, 2023 — chosen to
 span recent NFL eras where player-pool recall is most reliable. Individual
@@ -91,6 +103,9 @@ what browsers and messaging apps handle, just noting it's not a short link.)
   in the UI — they only drive the simulation — so adding a new season is
   purely a matter of real player/team names (and jersey numbers), never
   hand-tuned stat numbers.
+- `js/teamColors.js` — jersey/helmet colors per franchise (primary fill +
+  number color), keyed by the season data's abbreviations so the era-correct
+  colors resolve automatically.
 - `js/simulation.js` — the pure simulation engine. Turnovers (sack/INT/fumble)
   are checked first each possession; if none fire, a drive-success roll
   decides TD/FG/punt. Two separate variance knobs are kept apart in code per
@@ -100,6 +115,14 @@ what browsers and messaging apps handle, just noting it's not a short link.)
   also carries a `driveTeam`, a start/end field position (own-goal frame),
   and a game clock, purely so the live-field reveal can animate the ball —
   these are derived from the already-rolled outcome and never change who wins.
+  The box score is **emergent from the game actually played**, not a
+  reconstruction of season averages: each drive contributes real counting
+  stats based on its own outcome (a scoring drive adds yards/attempts/a TD; a
+  three-and-out adds little; an interception drive adds the pick), so a QB who
+  throws four TDs shows four TDs and a QB who gets picked twice shows two INTs.
+  Season stats only scale efficiency (better players produce more), they're
+  never copied into the final line. Two sims of the same matchup give
+  different box scores.
 - `js/draft.js` — the tap grid: $ values as rows, positions as columns,
   each cell a real player rendered as a position-colored jersey (with number)
   or, for defenses, a helmet chip — name only, no stats. Tapping enforces the

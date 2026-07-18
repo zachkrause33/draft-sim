@@ -203,9 +203,9 @@ function boxScoreTable(labelTeam, playersMap, box) {
     const player = playersMap[pos];
     let statStr = "";
     const b = box[pos];
-    if (pos === "QB") statStr = `${b.comp.toFixed(1)}/${b.att.toFixed(1)}, ${b.yds} yds, ${b.td} TD, ${b.int} INT`;
-    else if (pos === "RB") statStr = `${b.car.toFixed(1)} car, ${b.yds} yds, ${b.td} TD, ${b.fum} fum`;
-    else if (pos === "WR" || pos === "TE") statStr = `${b.rec.toFixed(1)} rec, ${b.yds} yds, ${b.td} TD, ${b.fum} fum`;
+    if (pos === "QB") statStr = `${b.comp}/${b.att}, ${b.yds} yds, ${b.td} TD, ${b.int} INT`;
+    else if (pos === "RB") statStr = `${b.car} car, ${b.yds} yds, ${b.td} TD, ${b.fum} fum`;
+    else if (pos === "WR" || pos === "TE") statStr = `${b.rec} rec, ${b.yds} yds, ${b.td} TD, ${b.fum} fum`;
     else if (pos === "DEF") statStr = `${b.sacks} sacks, ${b.int} INT, ${b.ff} FF`;
     return `<tr><td>${pos}</td><td>${player.name}</td><td>${statStr}</td></tr>`;
   }).join("");
