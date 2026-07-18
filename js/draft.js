@@ -4,20 +4,33 @@
 // selecting a cell clears any other selection sharing its row or column.
 // No stats are shown — the game is about recalling who was actually good
 // that season, not reading a spreadsheet.
+//
+// Offensive players show a position-colored jersey with their real number.
+// A defense is a whole team, not one player, so it shows a helmet chip and
+// keeps its team name.
 
 import { POSITIONS, DOLLAR_VALUES } from "./seasons.js";
 
 const POSITION_LABELS = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", DEF: "DEF" };
 
-function initials(name) {
-  const words = name.replace(/[^A-Za-z\s-]/g, "").split(/[\s-]+/).filter(Boolean);
-  if (words.length === 0) return "??";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+// Inline SVG so it renders in the sandboxed shareable preview too (no
+// external image requests). Jersey fill is set via CSS (currentColor-like)
+// using the position class on the cell.
+function jerseySvg(num) {
+  return `
+    <svg class="kit kit-jersey" viewBox="0 0 48 48" aria-hidden="true">
+      <path class="kit-fill" d="M17 6 L20 6 L24 10 L28 6 L31 6 L44 13 L39 22 L33 19 L33 43 L15 43 L15 19 L9 22 L4 13 Z"/>
+      <text class="kit-num" x="24" y="34" text-anchor="middle">${num != null ? num : ""}</text>
+    </svg>`;
 }
 
-function avatarText(pos, player) {
-  return pos === "DEF" ? player.team : initials(player.name);
+function helmetSvg() {
+  return `
+    <svg class="kit kit-helmet" viewBox="0 0 48 48" aria-hidden="true">
+      <path class="kit-fill" d="M8 26 C8 13 20 8 28 10 C39 12 42 21 42 26 L24 28 Z"/>
+      <path class="kit-fill" d="M24 27 L41 25 C41 31 37 34 31 34 L26 34 Z"/>
+      <rect class="kit-mask" x="22" y="27" width="15" height="3.4" rx="1.7"/>
+    </svg>`;
 }
 
 export function renderDraftScreen(container, board, seasonLabel, opts = {}) {
@@ -47,25 +60,22 @@ export function renderDraftScreen(container, board, seasonLabel, opts = {}) {
   }
 
   const cellsByPos = {};
-  const cellsByValue = {};
   for (const pos of POSITIONS) cellsByPos[pos] = {};
-  for (const value of DOLLAR_VALUES) cellsByValue[value] = {};
 
   for (const value of DOLLAR_VALUES) {
     grid.appendChild(mkEl(`<div class="board-row-header">$${value}</div>`));
     for (const pos of POSITIONS) {
       const player = board[pos][value];
+      const kit = pos === "DEF" ? helmetSvg() : jerseySvg(player.num);
       const cell = mkEl(`
         <button type="button" class="player-cell" data-pos="${pos}" data-value="${value}">
-          <span class="avatar">${avatarText(pos, player)}</span>
+          <span class="kit-wrap">${kit}</span>
           <span class="player-name">${player.name}</span>
-          <span class="player-team">${player.team}</span>
         </button>
       `);
       cell.addEventListener("click", () => selectCell(pos, value));
       grid.appendChild(cell);
       cellsByPos[pos][value] = cell;
-      cellsByValue[value][pos] = cell;
     }
   }
 

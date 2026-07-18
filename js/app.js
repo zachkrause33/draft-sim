@@ -221,20 +221,62 @@ function boxScoreTable(labelTeam, playersMap, box) {
   `;
 }
 
+function ordinal(q) {
+  return ["1st", "2nd", "3rd", "4th", "OT"][q - 1] || `Q${q}`;
+}
+
+// Ball position as a % across the whole field (endzones included). A drives
+// left→right, B right→left; yard is 0 (own goal) to 100 (opponent goal).
+function ballLeftPercent(driveTeam, yard) {
+  return driveTeam === "A" ? 10 + (yard / 100) * 80 : 90 - (yard / 100) * 80;
+}
+
+const TEAM_A_COLOR = "var(--pos-qb)"; // gold
+const TEAM_B_COLOR = "var(--pos-def)"; // blue
+
 function renderRevealScreen(result, labelA, labelB, resultShareUrl) {
   view.innerHTML = "";
 
-  const scorebug = el(`
+  // --- Scorebug ---
+  view.appendChild(el(`
     <div class="scorebug">
       <div class="scorebug-team"><span class="scorebug-label">${labelA}</span><span id="score-a" class="scorebug-score">0</span></div>
+      <div class="scorebug-clock"><span id="sb-clock">1st · 15:00</span></div>
       <div class="scorebug-team"><span class="scorebug-label">${labelB}</span><span id="score-b" class="scorebug-score">0</span></div>
     </div>
-  `);
-  view.appendChild(scorebug);
+  `));
 
+  // --- Live field ---
+  const field = el(`
+    <div class="field" style="--team-a-color:${TEAM_A_COLOR}; --team-b-color:${TEAM_B_COLOR};">
+      <div class="endzone endzone-a"><span>${labelA}</span></div>
+      <div class="endzone endzone-b"><span>${labelB}</span></div>
+      <div class="field-grass"></div>
+      <div class="ball" id="ball"></div>
+      <div class="poss-banner" id="poss-banner"><strong id="poss-team"></strong><span class="poss-sub">Possession</span></div>
+    </div>
+  `);
+  view.appendChild(field);
+  const ball = field.querySelector("#ball");
+  const possBanner = field.querySelector("#poss-banner");
+  const possTeam = field.querySelector("#poss-team");
+  const endzoneA = field.querySelector(".endzone-a");
+  const endzoneB = field.querySelector(".endzone-b");
+
+  // --- Controls ---
+  const controls = el(`
+    <div class="reveal-controls">
+      <button id="speed-btn" class="secondary-btn" type="button">Speed: 1×</button>
+      <button id="skip-btn" class="secondary-btn" type="button">Skip to Final</button>
+    </div>
+  `);
+  view.appendChild(controls);
+
+  // --- Play feed ---
   const log = el(`<div class="play-log"></div>`);
   view.appendChild(log);
 
+  // --- Box score + actions (hidden until final) ---
   const boxWrap = el(`<div class="box-scores" style="display:none;"></div>`);
   boxWrap.innerHTML = boxScoreTable(labelA, result.playersA, result.boxScoreA) + boxScoreTable(labelB, result.playersB, result.boxScoreB);
   view.appendChild(boxWrap);
@@ -242,49 +284,126 @@ function renderRevealScreen(result, labelA, labelB, resultShareUrl) {
   const footerActions = el(`<div class="reveal-actions" style="display:none;"></div>`);
   view.appendChild(footerActions);
 
-  let i = 0;
   const events = result.playLog;
-  function revealNext() {
-    if (i >= events.length) {
-      boxWrap.style.display = "";
-      footerActions.style.display = "";
-      if (resultShareUrl) {
-        footerActions.innerHTML = `
-          <p>Send this result link back to ${labelA} so they can see the same reveal:</p>
-          <div class="share-link-row">
-            <input type="text" readonly value="${resultShareUrl}" id="result-share-url" />
-            <button id="copy-result-btn" class="secondary-btn">Copy Link</button>
-          </div>
-          <button id="back-home-btn-2" class="link-btn">Back to Home</button>
-        `;
-        const copyBtn = footerActions.querySelector("#copy-result-btn");
-        copyBtn.addEventListener("click", () => {
-          copyToClipboard(resultShareUrl);
-          copyBtn.textContent = "Copied!";
-          setTimeout(() => (copyBtn.textContent = "Copy Link"), 1500);
-        });
-      } else {
-        footerActions.innerHTML = `<button id="back-home-btn-2" class="link-btn">Back to Home</button>`;
-      }
-      footerActions.querySelector("#back-home-btn-2").addEventListener("click", () => {
-        window.location.hash = "";
-        renderLanding();
-      });
-      return;
-    }
-    const evt = events[i];
+  let i = 0;
+  let speed = 1;
+  let timer = null;
+  let done = false;
+
+  const scoreAEl = document.getElementById("score-a");
+  const scoreBEl = document.getElementById("score-b");
+  const clockEl = document.getElementById("sb-clock");
+
+  function applyState(evt) {
+    scoreAEl.textContent = evt.runningScoreA;
+    scoreBEl.textContent = evt.runningScoreB;
+    if (evt.clock) clockEl.textContent = `${ordinal(evt.quarter)} · ${evt.clock}`;
+  }
+
+  function appendFeed(evt) {
     const line = el(`<div class="play-event play-${evt.type}">
-      <span class="play-quarter">Q${evt.quarter}</span>
+      <span class="play-quarter">${ordinal(evt.quarter)}</span>
       <span class="play-text">${evt.text}</span>
     </div>`);
     log.appendChild(line);
     log.scrollTop = log.scrollHeight;
-    document.getElementById("score-a").textContent = evt.runningScoreA;
-    document.getElementById("score-b").textContent = evt.runningScoreB;
-    i++;
-    setTimeout(revealNext, evt.type === "final" ? 200 : 450);
   }
-  revealNext();
+
+  function animateBall(evt) {
+    const startPct = ballLeftPercent(evt.driveTeam, evt.startYard);
+    const endPct = ballLeftPercent(evt.driveTeam, evt.endYard);
+    const slideMs = Math.round(1300 / speed);
+    // Snap to the line of scrimmage, then slide to the result.
+    ball.style.transition = "none";
+    ball.style.left = startPct + "%";
+    ball.classList.add("ball-live");
+    // force reflow so the next transition takes effect
+    void ball.offsetWidth;
+    ball.style.transition = `left ${slideMs}ms cubic-bezier(0.33, 0.9, 0.36, 1)`;
+    ball.style.left = endPct + "%";
+
+    const teamColor = evt.driveTeam === "A" ? TEAM_A_COLOR : TEAM_B_COLOR;
+    possTeam.textContent = evt.possessionTeam;
+    possBanner.style.setProperty("--poss-color", teamColor);
+    possBanner.classList.add("visible");
+
+    if (evt.points === 7) {
+      const ez = evt.driveTeam === "A" ? endzoneB : endzoneA;
+      setTimeout(() => ez.classList.add("flash"), slideMs);
+      setTimeout(() => ez.classList.remove("flash"), slideMs + 700);
+    }
+  }
+
+  function finish() {
+    if (done) return;
+    done = true;
+    if (timer) { clearTimeout(timer); timer = null; }
+    possBanner.classList.remove("visible");
+    controls.style.display = "none";
+    boxWrap.style.display = "";
+    footerActions.style.display = "";
+    if (resultShareUrl) {
+      footerActions.innerHTML = `
+        <p>Send this result link back to ${labelA} so they can see the same reveal:</p>
+        <div class="share-link-row">
+          <input type="text" readonly value="${resultShareUrl}" id="result-share-url" />
+          <button id="copy-result-btn" class="secondary-btn">Copy Link</button>
+        </div>
+        <button id="back-home-btn-2" class="link-btn">Back to Home</button>
+      `;
+      const copyBtn = footerActions.querySelector("#copy-result-btn");
+      copyBtn.addEventListener("click", () => {
+        copyToClipboard(resultShareUrl);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => (copyBtn.textContent = "Copy Link"), 1500);
+      });
+    } else {
+      footerActions.innerHTML = `<button id="back-home-btn-2" class="link-btn">Back to Home</button>`;
+    }
+    footerActions.querySelector("#back-home-btn-2").addEventListener("click", () => {
+      window.location.hash = "";
+      renderLanding();
+    });
+  }
+
+  function step() {
+    if (i >= events.length) { finish(); return; }
+    const evt = events[i];
+    i++;
+    applyState(evt);
+    appendFeed(evt);
+
+    let dur;
+    if (evt.type === "info") {
+      dur = 1500;
+    } else if (evt.type === "final") {
+      timer = setTimeout(finish, Math.round(700 / speed));
+      return;
+    } else {
+      animateBall(evt);
+      dur = 2500;
+    }
+    timer = setTimeout(step, Math.round(dur / speed));
+  }
+
+  function skipToEnd() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    while (i < events.length) {
+      const evt = events[i];
+      i++;
+      applyState(evt);
+      appendFeed(evt);
+    }
+    finish();
+  }
+
+  controls.querySelector("#speed-btn").addEventListener("click", () => {
+    speed = speed === 1 ? 2 : 1;
+    controls.querySelector("#speed-btn").textContent = `Speed: ${speed}×`;
+  });
+  controls.querySelector("#skip-btn").addEventListener("click", skipToEnd);
+
+  step();
 }
 
 // ---------- Routing ----------

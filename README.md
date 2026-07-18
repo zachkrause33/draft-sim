@@ -34,6 +34,14 @@ draft from; tapping a cell assigns its $ value to that position, and since
 each value and each position can only be used once, selecting a cell clears
 any other selection sharing its row or column.
 
+Cards show a position-colored jersey with the player's real number for that
+team-season (players change numbers between teams, so the number lives on the
+per-season candidate), and the name — no stats, no team abbreviation. A
+defense is a whole team rather than one player, so it keeps its team name and
+shows a helmet chip instead of a numbered jersey. Both the jersey and the
+helmet are inline SVG, so they render in the sandboxed shareable preview with
+no external image requests.
+
 **Season coverage:** 2000, 2003, 2007, 2011, 2015, 2019, 2023 — chosen to
 span recent NFL eras where player-pool recall is most reliable. Individual
 per-game stats (comp/att/yds/td/int, car/yds/td/fum, rec/yds/td/fum) have
@@ -81,22 +89,31 @@ what browsers and messaging apps handle, just noting it's not a short link.)
   keys, though only 2000s-2020s are populated so far) and how much a $-tier
   scales that baseline. Stats are derived formulaically and are never shown
   in the UI — they only drive the simulation — so adding a new season is
-  purely a matter of real player/team names, never hand-tuned numbers.
+  purely a matter of real player/team names (and jersey numbers), never
+  hand-tuned stat numbers.
 - `js/simulation.js` — the pure simulation engine. Turnovers (sack/INT/fumble)
   are checked first each possession; if none fire, a drive-success roll
   decides TD/FG/punt. Two separate variance knobs are kept apart in code per
   the game plan: a tight ~5% "outcome variance" on the scoring roll (the
   actual fairness lever) and a wide ~15-30% "stat-flavor variance" on
-  yardage (cosmetic, keeps box scores from repeating).
+  yardage (cosmetic, keeps box scores from repeating). Each possession event
+  also carries a `driveTeam`, a start/end field position (own-goal frame),
+  and a game clock, purely so the live-field reveal can animate the ball —
+  these are derived from the already-rolled outcome and never change who wins.
 - `js/draft.js` — the tap grid: $ values as rows, positions as columns,
-  each cell a real player rendered as an initials avatar + name + team, no
-  stats. Tapping enforces the one-value-per-position, one-position-per-value
-  constraint directly (it's a permutation-matrix selection).
+  each cell a real player rendered as a position-colored jersey (with number)
+  or, for defenses, a helmet chip — name only, no stats. Tapping enforces the
+  one-value-per-position, one-position-per-value constraint directly (it's a
+  permutation-matrix selection).
 - `js/challenge.js` — encode/decode challenge and result payloads to/from a
   URL-safe base64 hash fragment, plus the `localStorage` helper for the
   creating player.
 - `js/app.js` — screen routing and wiring (landing, draft, share, challenge
-  intro, live reveal with play-by-play + box score).
+  intro, and the live reveal). The reveal is a FanDuel-style broadcast: a
+  top-down field with the ball sliding down it drive by drive, a possession
+  banner in the offense's color, a live scorebug with a game clock, and a
+  slowed play-by-play feed. It has a 1×/2× speed toggle and a "Skip to Final"
+  button, then drops to the full box score.
 
 ## Known tuning notes
 

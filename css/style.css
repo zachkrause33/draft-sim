@@ -208,33 +208,33 @@ h2 { margin-top: 0; text-wrap: balance; }
   background: color-mix(in srgb, var(--accent) 18%, var(--panel-alt));
 }
 
-.avatar {
-  width: 2.1rem;
-  height: 2.1rem;
-  border-radius: 50%;
+.kit-wrap {
+  width: 2.4rem;
+  height: 2.4rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 800;
-  font-size: 0.75rem;
-  color: #10230f;
 }
-.player-cell[data-pos="QB"] .avatar { background: var(--pos-qb); }
-.player-cell[data-pos="RB"] .avatar { background: var(--pos-rb); }
-.player-cell[data-pos="WR"] .avatar { background: var(--pos-wr); }
-.player-cell[data-pos="TE"] .avatar { background: var(--pos-te); }
-.player-cell[data-pos="DEF"] .avatar { background: var(--pos-def); }
+.kit { width: 100%; height: 100%; display: block; }
+.kit-fill { fill: var(--muted); }
+.player-cell[data-pos="QB"] .kit-fill { fill: var(--pos-qb); }
+.player-cell[data-pos="RB"] .kit-fill { fill: var(--pos-rb); }
+.player-cell[data-pos="WR"] .kit-fill { fill: var(--pos-wr); }
+.player-cell[data-pos="TE"] .kit-fill { fill: var(--pos-te); }
+.player-cell[data-pos="DEF"] .kit-fill { fill: var(--pos-def); }
+.kit-num {
+  fill: #10230f;
+  font-size: 15px;
+  font-weight: 800;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+.kit-mask { fill: rgba(255, 255, 255, 0.85); }
 
 .player-name {
   font-size: 0.72rem;
   font-weight: 600;
   text-align: center;
   line-height: 1.15;
-}
-.player-team {
-  font-size: 0.65rem;
-  color: var(--muted);
-  letter-spacing: 0.04em;
 }
 
 .lock-btn { width: 100%; }
@@ -264,7 +264,9 @@ h2 { margin-top: 0; text-wrap: balance; }
 
 .scorebug {
   display: flex;
-  justify-content: space-around;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
   background: var(--panel-alt);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -278,9 +280,133 @@ h2 { margin-top: 0; text-wrap: balance; }
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex: 1;
 }
-.scorebug-label { color: var(--muted); font-size: 0.85rem; }
+.scorebug-label { color: var(--muted); font-size: 0.85rem; text-align: center; }
 .scorebug-score { font-size: 2.2rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.scorebug-clock {
+  flex-shrink: 0;
+  background: var(--bad);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- Live field ---- */
+.field {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 8;
+  min-height: 190px;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+  background: #1f6b34;
+}
+.field-grass {
+  position: absolute;
+  inset: 0;
+  left: 10%;
+  right: 10%;
+  background:
+    repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), rgba(255,255,255,0.35) calc(10% - 1px), rgba(255,255,255,0.35) 10%),
+    repeating-linear-gradient(90deg, #237a3b 0, #237a3b 10%, #1f6b34 10%, #1f6b34 20%);
+}
+.field-grass::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 50%;
+  width: 2px;
+  background: rgba(255,255,255,0.7);
+  transform: translateX(-1px);
+}
+.endzone {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 10%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.endzone span {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  max-height: 90%;
+}
+.endzone-a { left: 0; background: color-mix(in srgb, var(--team-a-color) 78%, #14401f); }
+.endzone-b { right: 0; background: color-mix(in srgb, var(--team-b-color) 78%, #14401f); }
+.endzone.flash { animation: ez-flash 0.7s ease; }
+@keyframes ez-flash {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(2.1); }
+}
+.ball {
+  position: absolute;
+  top: 50%;
+  left: 30%;
+  width: 20px;
+  height: 13px;
+  margin: -6px 0 0 -10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #a0522d, #6b3410);
+  border: 1px solid #3d1d08;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  z-index: 3;
+  opacity: 0;
+}
+.ball.ball-live { opacity: 1; }
+.ball::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 25%; right: 25%;
+  height: 1.5px;
+  background: rgba(255,255,255,0.85);
+  transform: translateY(-50%);
+}
+.poss-banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 0.25rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.55);
+  border: 1.5px solid var(--poss-color, #fff);
+  z-index: 4;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.poss-banner.visible { opacity: 1; }
+.poss-banner strong { color: var(--poss-color, #fff); font-size: 0.85rem; }
+.poss-sub { color: rgba(255,255,255,0.85); font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.reveal-controls {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.reveal-controls .secondary-btn { padding: 0.5rem 1rem; font-size: 0.9rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ball { transition: none !important; }
+}
 
 .play-log {
   max-height: 380px;
@@ -337,8 +463,7 @@ h2 { margin-top: 0; text-wrap: balance; }
 
 @media (max-width: 480px) {
   .draft-board { grid-template-columns: 2.2rem repeat(5, 1fr); gap: 0.25rem; }
-  .player-cell { min-height: 4.6rem; padding: 0.4rem 0.15rem; }
-  .avatar { width: 1.7rem; height: 1.7rem; font-size: 0.65rem; }
+  .player-cell { min-height: 4.8rem; padding: 0.4rem 0.15rem; }
+  .kit-wrap { width: 2rem; height: 2rem; }
   .player-name { font-size: 0.62rem; }
-  .player-team { font-size: 0.55rem; }
 }
